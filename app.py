@@ -8,6 +8,7 @@ from asset_judge import asset_judge
 from asset_extract_items import asset_extract_items
 from make_df import parse_extracted_items_to_dataframe, parse_llm_output_to_dataframe
 from refine_rag_response_from_df import refine_rag_response_from_df 
+from fob_csv_converter import convert_to_fob_csv, preview_fob_conversion
 from pprint import pformat
 
 # --- 差分検出＆ChangeTitleテーブルへ挿入 ---
@@ -22,7 +23,13 @@ load_dotenv()
 AZURE_ENDPOINT = os.getenv("DOC_ENDPOINT")
 AZURE_KEY = os.getenv("DOC_API_KEY")
 
+
 st.set_page_config(page_title="固定資産判定アプリ", layout="wide")
+
+# --- セッションキーの初期化 ---
+for k in ["fob_csv_df", "csv_conversion_success"]:
+    if k not in st.session_state:
+        st.session_state[k] = None if k == "fob_csv_df" else False
 
 # --- サイドバー：ページ切り替え ---
 st.sidebar.subheader("ページの一覧")
@@ -317,19 +324,103 @@ if page == "メイン":
                     final_response = refine_rag_response_from_df(df)
                     st.session_state["final_rag_response"] = final_response
 
-                    st.markdown("### 固定資産台帳用の最終出力結果")
+        # ------------------------
+        # 台帳出力と CSV 変換 UI を常に表示
+        # ------------------------
+        if "final_rag_response" in st.session_state:
+            st.markdown("### 固定資産台帳用の最終出力結果")
 
+            try:
+                df_final = parse_llm_output_to_dataframe(st.session_state["final_rag_response"])
+
+                # セッション状態の初期化（初回のみ）
+                if "edited_final_df" not in st.session_state:
+                    st.session_state["edited_final_df"] = df_final
+
+                # data_editor の値としてセッション状態を使用
+                current_df = st.session_state.get("edited_final_df", df_final)
+                edited_final_df = st.data_editor(
+                    current_df,
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    key="final_df_editor"
+                )
+                st.session_state["edited_final_df"] = edited_final_df
+
+                # --- 固定資産奉行用 CSV 出力機能 ---
+                has_final_data = True
+
+                if has_final_data:
                     try:
-                        # 表形式で表示＆編集可能
-                        df_final = parse_llm_output_to_dataframe(st.session_state["final_rag_response"])
-                        # st.write("🔍 デバッグ: 最終出力DataFrameのshape", df_final.shape)
-                        # st.dataframe(df_final)  # 表形式での事前確認
-                        edited_final_df = st.data_editor(df_final, use_container_width=True, num_rows="dynamic")
-                        st.session_state["edited_final_df"] = edited_final_df
+                        st.markdown("---")
+                        st.subheader("固定資産奉行インポート用CSV出力")
+
+                        # CSVエクスポート設定
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            department = st.selectbox(
+                                "部門を選択",
+                                ["本社", "営業部", "開発部", "総務部", "経理部", "人事部", "情報システム部", "その他"],
+                                index=0
+                            )
+                        with col2:
+                            location = st.selectbox(
+                                "設置場所を選択",
+                                ["本社", "東京オフィス", "大阪オフィス", "名古屋オフィス", "福岡オフィス", "在宅勤務", "その他"],
+                                index=0
+                            )
+
+                        acquisition_date = st.date_input(
+                            "取得日・供用日",
+                            value=pd.Timestamp.now().date()
+                        ).strftime("%Y-%m-%d")
+
+                        # --- CSV変換実行 ---
+                        if st.button("固定資産奉行用CSVに変換", key="convert_fob_csv"):
+                            try:
+                                current_edited_df = st.session_state.get("edited_final_df", edited_final_df)
+                                df_fob = convert_to_fob_csv(
+                                    current_edited_df,
+                                    department=department,
+                                    location=location,
+                                    acquisition_date=acquisition_date
+                                )
+                                st.session_state["fob_csv_df"] = df_fob
+                                st.session_state["csv_conversion_success"] = True
+                                st.success("固定資産奉行用CSVへの変換が完了しました！")
+                            except Exception as e:
+                                st.session_state["csv_conversion_success"] = False
+                                st.error("固定資産奉行用CSV変換でエラーが発生しました。")
+                                st.exception(e)
+
+                        # --- プレビュー表示 ---
+                        if st.session_state.get("csv_conversion_success"):
+                            try:
+                                df_fob = st.session_state["fob_csv_df"]
+                                preview_text = preview_fob_conversion(df_fob)
+                                st.text_area("変換結果プレビュー", preview_text, height=300)
+                                with st.expander("CSV詳細データを表示"):
+                                    st.dataframe(df_fob, use_container_width=True)
+
+                                csv_data = df_fob.to_csv(index=False, encoding="utf-8-sig")
+                                st.download_button(
+                                    label="固定資産奉行用CSVをダウンロード",
+                                    data=csv_data,
+                                    file_name=f"fob_import_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv",
+                                    help="固定資産奉行にインポート可能なCSVファイルをダウンロードします"
+                                )
+                            except Exception as e:
+                                st.error("CSVプレビュー/ダウンロード表示でエラーが発生しました。")
+                                st.exception(e)
                     except Exception as e:
-                        st.error("最終出力の表形式変換に失敗しました。形式を確認してください。")
+                        st.error("CSV出力セクションで予期しないエラーが発生しました。")
                         st.exception(e)
-                        st.text_area("テキスト表示（参考）", final_response, height=400)
+
+            except Exception as e:
+                st.error("最終出力の表形式変換に失敗しました。形式を確認してください。")
+                st.exception(e)
+                st.text_area("テキスト表示（参考）", st.session_state["final_rag_response"], height=400)
 
     # --- チャットボット機能 ---
     st.markdown("---")
