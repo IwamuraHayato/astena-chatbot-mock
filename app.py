@@ -4,7 +4,7 @@ from azure.core.credentials import AzureKeyCredential
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from dotenv import load_dotenv
 from chat_response import generate_response
-from asset_judge import asset_judge
+from asset_judge import asset_judge, asset_judge_norag
 from asset_extract_items import asset_extract_items
 from make_df import parse_extracted_items_to_dataframe, parse_llm_output_to_dataframe
 from refine_rag_response_from_df import refine_rag_response_from_df 
@@ -233,21 +233,33 @@ if page == "メイン":
             st.exception(e)
 
     if "extracted_text" in st.session_state:
-        if st.button("固定資産を判定する"):
-            with st.spinner("固定資産の情報を判定中．．．"):
-                document_text = st.session_state.get("edited_extracted_df", None)
-
-                # edited_extracted_dfが未保存の場合は、デフォルトのextracted_itemsを使用
-                if document_text is None:
-                    document_text = st.session_state["extracted_items"]
-                elif isinstance(document_text, pd.DataFrame):
-                    document_text = document_text.to_csv(index=False)
-
-                rag_response = asset_judge(
-                    user_chat="以下のテキストから品目ごとに金額、勘定科目、法定耐用年数、根拠を抽出してください。",
-                    document_text=document_text
-                )
-                st.session_state["rag_response"] = rag_response
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("固定資産を判定する", key="judge_rag"):
+                with st.spinner("固定資産の情報を判定中．．．"):
+                    document_text = st.session_state.get("edited_extracted_df", None)
+                    if document_text is None:
+                        document_text = st.session_state["extracted_items"]
+                    elif isinstance(document_text, pd.DataFrame):
+                        document_text = document_text.to_csv(index=False)
+                    rag_response = asset_judge(
+                        user_chat="以下のテキストから品目ごとに金額、勘定科目、法定耐用年数、根拠を抽出してください。",
+                        document_text=document_text
+                    )
+                    st.session_state["rag_response"] = rag_response
+        with col2:
+            if st.button("固定資産を判定する（RAGなし）", key="judge_no_rag"):
+                with st.spinner("固定資産の情報を判定中．．．"):
+                    document_text = st.session_state.get("edited_extracted_df", None)
+                    if document_text is None:
+                        document_text = st.session_state["extracted_items"]
+                    elif isinstance(document_text, pd.DataFrame):
+                        document_text = document_text.to_csv(index=False)
+                    rag_response = asset_judge_norag(
+                        user_chat="以下のテキストから品目ごとに金額、勘定科目、法定耐用年数、根拠を抽出してください。",
+                        document_text=document_text
+                    )
+                    st.session_state["rag_response"] = rag_response
 
     if "rag_response" in st.session_state:
         st.subheader("固定資産判定結果")
