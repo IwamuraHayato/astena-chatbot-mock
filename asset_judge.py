@@ -56,7 +56,7 @@ def asset_judge(user_chat: str, old_chat: str = "", document_text :str = "") -> 
     query_text = user_chat + "\n" + document_text
     print("クエリの内容:")
     print(query_text)
-    retrieved_docs = index.similarity_search(query_text, k=2)
+    retrieved_docs = index.similarity_search(query_text, k=5)
     retrieved_context = "\n".join([doc.page_content for doc in retrieved_docs])
     print("類似度の高いチャンク:")
     print(retrieved_context)
@@ -87,12 +87,23 @@ def asset_judge(user_chat: str, old_chat: str = "", document_text :str = "") -> 
 
     # エクセル読み込み
     excel_files = [f for f in os.listdir(example_dir) if f.endswith(('.xlsx', '.xls'))]
+    csv_files = [f for f in os.listdir(example_dir) if f.endswith('.csv')]
 
     dataframes = {}
     for file in excel_files:
         file_path = os.path.join(example_dir, file)
         try:
             df = pd.read_excel(file_path)
+            dataframes[file] = df
+            print(f"\n {file} の内容:")
+            print(df.head())
+        except Exception as e:
+            print(f"{file} の読み込み中にエラーが発生しました: {e}")
+
+    for file in csv_files:
+        file_path = os.path.join(example_dir, file)
+        try:
+            df = pd.read_csv(file_path)
             dataframes[file] = df
             print(f"\n {file} の内容:")
             print(df.head())

@@ -2,7 +2,7 @@ import os
 # from dotenv import load_dotenv
 from langchain_community.document_loaders import UnstructuredFileLoader
 from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.text_splitter import MarkdownHeaderTextSplitter
 from langchain_community.embeddings.huggingface import HuggingFaceEmbeddings
 # from langchain_community.embeddings.azure_openai import AzureOpenAIEmbeddings # 廃止予定
 from langchain_openai import AzureOpenAIEmbeddings  # ← import 元を変更
@@ -11,6 +11,7 @@ from langchain.docstore.document import Document
 import streamlit as st
 import pandas as pd
 from ocr_utils import create_document_from_pdf_ocr
+from langchain_core.documents import Document
 
 def build_faiss_index(
     # filename: str = "ey-japan-info-sensor-2023-06-03.pdf",
@@ -91,14 +92,33 @@ def build_faiss_index(
     print(f"総ドキュメント数: {len(documents)}")
 
     # 2. テキスト分割
-    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    split_texts = splitter.split_documents(documents)
+    splitter = MarkdownHeaderTextSplitter(headers_to_split_on=[
+        ("#", "header1"),
+        ("##", "header2"),
+        ("###", "header3"),
+    ])
+    split_texts = []
+    for doc in documents:
+        try:
+            if isinstance(doc, list):
+                for subdoc in doc:
+                    if isinstance(subdoc, Document):
+                        splits = splitter.split_text(str(subdoc.page_content))
+                        split_texts.extend([Document(page_content=str(chunk), metadata=subdoc.metadata) for chunk in splits])
+            elif isinstance(doc, Document):
+                splits = splitter.split_text(str(doc.page_content))
+                split_texts.extend([Document(page_content=str(chunk), metadata=doc.metadata) for chunk in splits])
+            else:
+                print(f"無視されました: {type(doc)}")
+        except Exception as e:
+            print(f"チャンク分割失敗: {e}")
+
     print(f"チャンク数: {len(split_texts)}")
 
-    for i, doc in enumerate(split_texts[:5], 1):
+    for i, doc in enumerate(split_texts, 1):
         print(f"\n----- チャンク {i} -----")
-        # print(doc.page_content)        # 全文
-        print(doc.page_content[:300])  # 300 文字だけ見たい場合
+        print(doc.page_content)        # 全文
+        # print(doc.page_content[:300])  # 300 文字だけ見たい場合
 
     # 3. 埋め込みモデル読み込み（Azure OpenAI埋め込みに変更）
     embedding_model = AzureOpenAIEmbeddings(

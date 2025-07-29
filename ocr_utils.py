@@ -96,6 +96,16 @@ def create_document_from_pdf_ocr(pdf_path: str) -> Document:
     """
     try:
         extracted_text = extract_structured_text_from_pdf(pdf_path)
+        # Markdown見出し構造がない場合に備えて、段落内容を加工して構造を補強
+        lines = extracted_text.splitlines()
+        enhanced_lines = []
+        for line in lines:
+            line = line.strip()
+            if any(keyword in line for keyword in ["設備", "装備", "構造", "用途", "細目", "耐用年数"]):
+                enhanced_lines.append(f"### {line}")  # 小見出しに昇格
+            else:
+                enhanced_lines.append(line)
+        extracted_text = "\n".join(enhanced_lines)
         return Document(
             page_content=extracted_text,
             metadata={"source": pdf_path, "extraction_method": "azure_document_intelligence"}
