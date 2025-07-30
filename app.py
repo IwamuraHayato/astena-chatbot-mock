@@ -246,7 +246,7 @@ if page == "メイン":
                         user_chat="以下のテキストから品目ごとに金額、勘定科目、法定耐用年数、根拠を抽出してください。",
                         document_text=document_text
                     )
-                    st.session_state["rag_response"] = rag_response
+                    st.session_state["rag_response_rag"] = rag_response
         with col2:
             if st.button("固定資産を判定する（RAGなし）", key="judge_no_rag"):
                 with st.spinner("固定資産の情報を判定中．．．"):
@@ -259,73 +259,83 @@ if page == "メイン":
                         user_chat="以下のテキストから品目ごとに金額、勘定科目、法定耐用年数、根拠を抽出してください。",
                         document_text=document_text
                     )
-                    st.session_state["rag_response"] = rag_response
+                    st.session_state["rag_response_norag"] = rag_response
 
-    if "rag_response" in st.session_state:
-        st.subheader("固定資産判定結果")
-        # st.markdown(st.session_state["rag_response"]) 
-        # 表形式に変換して表示
-        try:
-            df = parse_llm_output_to_dataframe(st.session_state["rag_response"])
-            # st.subheader("固定資産判定結果")
-            edited_df = st.data_editor(df, use_container_width=True, num_rows="dynamic")
+    # --- 固定資産判定結果表示（RAG・RAGなし 両方） ---
+    st.subheader("固定資産判定結果")
+    col_rag, col_norag = st.columns(2)
+    with col_rag:
+        st.markdown("#### RAGあり")
+        if "rag_response_rag" in st.session_state:
+            try:
+                df = parse_llm_output_to_dataframe(st.session_state["rag_response_rag"])
+                edited_df = st.data_editor(df, use_container_width=True, num_rows="dynamic", key="editor_rag")
+                # 保存ボタン（RAGあり）
+                if st.button("修正内容を保存（RAG）"):
+                    st.session_state["edited_df"] = edited_df
+                    st.success("修正内容を保存しました")
 
-            # オプションで、保存ボタンを表示して、保存処理を追加可能
-            if st.button("修正内容を保存"):
-                st.session_state["edited_df"] = edited_df
-                st.success("修正内容を保存しました")
+                    def safe_to_float(value):
+                        try:
+                            return float(str(value).replace(",", "").replace("円", "").strip())
+                        except:
+                            return 0.0
 
-                def safe_to_float(value):
-                    try:
-                        return float(str(value).replace(",", "").replace("円", "").strip())
-                    except:
-                        return 0.0
-
-                original_df = parse_llm_output_to_dataframe(st.session_state["rag_response"])
-                edited_df = st.session_state["edited_df"]
-
-                # 比較と差分検出
-                for idx in range(len(original_df)):
-                    original_row = original_df.iloc[idx]
-                    edited_row = edited_df.iloc[idx]
-
-                    if not original_row.equals(edited_row):
-                        change_log = {
-                            "OperationTimestamp": datetime.now().isoformat(),
-                            "TargetRecordID": str(idx),
-                            "Old_ItemName": str(original_row.get("品目名", "")),
-                            "New_ItemName": str(edited_row.get("品目名", "")),
-                            "Old_Amount": safe_to_float(original_row.get("金額", 0)),
-                            "New_Amount": safe_to_float(edited_row.get("金額", 0)),
-                            "Old_AccountTitle": str(original_row.get("勘定科目", "")),
-                            "New_AccountTitle": str(edited_row.get("勘定科目", "")),
-                            "Old_LegalUsefulLife": str(original_row.get("法定耐用年数", "")),
-                            "New_LegalUsefulLife": str(edited_row.get("法定耐用年数", "")),
-                            "Old_Basis": str(original_row.get("根拠", "")),
-                            "New_Basis": str(edited_row.get("根拠", "")),
-                            "Remarks": "Streamlit経由で修正"
-                        }
-                        print("changelog", change_log)
-                        myinsert(ChangeTitle, change_log)
-        except Exception as e:
-            st.error("表形式での変換に失敗しました。出力形式を確認してください。")
-            st.exception(e)
+                    original_df = parse_llm_output_to_dataframe(st.session_state["rag_response_rag"])
+                    edited_df = st.session_state["edited_df"]
+                    for idx in range(len(original_df)):
+                        original_row = original_df.iloc[idx]
+                        edited_row = edited_df.iloc[idx]
+                        if not original_row.equals(edited_row):
+                            change_log = {
+                                "OperationTimestamp": datetime.now().isoformat(),
+                                "TargetRecordID": str(idx),
+                                "Old_ItemName": str(original_row.get("品目名", "")),
+                                "New_ItemName": str(edited_row.get("品目名", "")),
+                                "Old_Amount": safe_to_float(original_row.get("金額", 0)),
+                                "New_Amount": safe_to_float(edited_row.get("金額", 0)),
+                                "Old_AccountTitle": str(original_row.get("勘定科目", "")),
+                                "New_AccountTitle": str(edited_row.get("勘定科目", "")),
+                                "Old_LegalUsefulLife": str(original_row.get("法定耐用年数", "")),
+                                "New_LegalUsefulLife": str(edited_row.get("法定耐用年数", "")),
+                                "Old_Basis": str(original_row.get("根拠", "")),
+                                "New_Basis": str(edited_row.get("根拠", "")),
+                                "Remarks": "Streamlit経由で修正"
+                            }
+                            print("changelog", change_log)
+                            myinsert(ChangeTitle, change_log)
+            except Exception as e:
+                st.error("表形式での変換に失敗しました。出力形式を確認してください。（RAGあり）")
+                st.exception(e)
+        else:
+            st.info("RAGありの判定結果はまだありません。")
+    with col_norag:
+        st.markdown("#### RAGなし（参考）")
+        if "rag_response_norag" in st.session_state:
+            try:
+                df_norag = parse_llm_output_to_dataframe(st.session_state["rag_response_norag"])
+                st.data_editor(df_norag, use_container_width=True, num_rows="dynamic", key="editor_norag")
+            except Exception as e:
+                st.error("表形式での変換に失敗しました。出力形式を確認してください。（RAGなし）")
+                st.exception(e)
+        else:
+            st.info("RAGなしの判定結果はまだありません。")
 
 
     # --- 台帳書き込み用出力 ---
-    if "rag_response" in st.session_state:
+    if "rag_response_rag" in st.session_state:
         if st.button("固定資産台帳への書き込み用データを作成する"):
-            # 優先順：編集済みデータがあればそれを使う。なければ元のrag_responseから作成
+            # 優先順：編集済みデータがあればそれを使う。なければ元のrag_response_ragから作成
             with st.spinner("固定資産台帳への書き込み用データを作成しています．．．"):
                 if "edited_df" in st.session_state:
                     df = st.session_state["edited_df"]
                     st.info("編集済みのデータを使用します")
-                elif "rag_response" in st.session_state:
+                elif "rag_response_rag" in st.session_state:
                     try:
-                        df = parse_llm_output_to_dataframe(st.session_state["rag_response"])
+                        df = parse_llm_output_to_dataframe(st.session_state["rag_response_rag"])
                         st.info("元のRAG出力を使用します（編集なし）")
                     except Exception as e:
-                        st.error("rag_response の整形に失敗しました")
+                        st.error("rag_response_rag の整形に失敗しました")
                         st.exception(e)
                         df = None
                 else:
@@ -451,11 +461,11 @@ if page == "メイン":
                 old_chat += f"{prefix}{message}\n"
 
             # --- 修正済みの DataFrame があればそれを使う ---
-            df_chat_source = st.session_state.get("edited_df")  # ← rag_responseを編集したDataFrame
+            df_chat_source = st.session_state.get("edited_df")  # ← rag_response_ragを編集したDataFrame
             if df_chat_source is not None:
                 document_text = df_chat_source.to_csv(index=False)
             else:
-                document_text = st.session_state.get("rag_response", "")
+                document_text = st.session_state.get("rag_response_rag", "")
 
             # 応答生成
             with st.spinner("AIが応答を生成中..."):
